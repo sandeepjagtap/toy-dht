@@ -1,0 +1,16 @@
+sbt "run-main com.tw.ds.App app1  0 536870912  2558 2559 2560"
+
+sbt "run-main com.tw.ds.App app2  536870913 1073741824 20 2557 2559 2560"
+
+sbt "run-main com.tw.ds.App app3  1073741825 1610612736 2557 2558 2560"
+
+sbt "run-main com.tw.ds.App app4  1610612737 2147483648 2557 2558 2559"
+
+
+//kryo serializable library
+
+
+ {Shard{startKey=1, endKey=10}=akka.tcp://appSystem@127.0.0.1:2557/user/appActor,
+  Shard{startKey=11, endKey=20}=akka://appSystem/user/appActor,
+  Shard{startKey=21, endKey=30}=akka.tcp://appSystem@127.0.0.1:2559/user/appActor,
+  Shard{startKey=31, endKey=40}=akka.tcp://appSystem@127.0.0.1:2560/user/appActor}
