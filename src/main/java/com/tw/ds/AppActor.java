@@ -1,6 +1,7 @@
 package com.tw.ds;
 
 import akka.actor.*;
+import akka.japi.Procedure;
 import akka.serialization.Serialization;
 
 import java.util.HashMap;
@@ -34,16 +35,72 @@ public class AppActor extends UntypedActor {
         });
 
         String serializedActorPath = Serialization.serializedActorPath(getSelf());
-        this.actorPathStr = serializedActorPath.replaceFirst("#.*","" );
+        this.actorPathStr = serializedActorPath.replaceFirst("#.*", "");
 
     }
 
     @Override
     public void onReceive(Object message) throws Throwable {
 
-        ShardOperationsHandler.handleSharding(this, message);
-        CacheOperationsHandler.handlePutAndGet(this, message);
+        if (message instanceof ActorIdentity) {
+            ActorIdentity identity = (ActorIdentity) message;
+            String path = identity.correlationId().toString();
+            ActorSelection actorSelection = getContext().actorSelection(path);
+            if (identity.getRef() == null) {
+                actorSelection.tell(new Identify(path), getSelf());
+            } else {
+                actorSelection.tell(new ShardMessage(startKey, endKey), getSelf());
+            }
+        } else if (message instanceof ShardMessage) {
+            ShardMessage shardMessage = (ShardMessage) message;
+            Shard shard = new Shard(shardMessage.getStartKey(), shardMessage.getEndKey());
+            shardMap.put(shard, getSender().path());
+            System.out.println("ShardMap is = " + shardMap);
+            if (shardMap.keySet().size() == 4) {
+                getSelf().tell(new Status.Success(""), getSelf());
+            }
+        } else if (message instanceof Status.Success) {
+            getContext().become(cacheOperationsHandler);
+
+        } else {
+
+        }
+
     }
+
+
+    Procedure<Object> cacheOperationsHandler = new Procedure<Object>() {
+
+        @Override
+        public void apply(Object message) throws Exception {
+            if (message instanceof PutMessage) {
+                PutMessage putMessage = (PutMessage) message;
+                ActorPath actorPath = findShard(putMessage.getKey());
+
+                if (actorPath != null) {
+                    if (actorPath == getSelf().path()) {
+                        partitionedMap.put(putMessage.getKey(), putMessage.getValue());
+                        System.out.println(partitionedMap);
+                    } else {
+                        getContext().actorSelection(actorPath).tell(message, getSelf());
+                    }
+                }
+            } else if (message instanceof ReadMessage) {
+                ReadMessage readMessage = (ReadMessage) message;
+                ActorPath actorPath = findShard(readMessage.getKey());
+                if (actorPath == getSelf().path()) {
+                    Integer value = partitionedMap.get(readMessage.getKey());
+                    ActorRef sender = getSender();
+                    ReadMessageAnswer msg = new ReadMessageAnswer(readMessage.getKey(), value);
+                    ActorRef self = self();
+                    sender.tell(msg, self);
+                } else {
+                    getContext().actorSelection(actorPath).tell(message, getSender());
+                }
+            }
+        }
+    };
+
 
     private ActorPath findShard(int key) {
         Set<Shard> shards = shardMap.keySet();
@@ -57,69 +114,5 @@ public class AppActor extends UntypedActor {
 
     }
 
-
-     static class CacheOperationsHandler {
-
-        static void handlePutAndGet(AppActor appActor, Object message) {
-
-            if (message instanceof PutMessage) {
-                PutMessage putMessage = (PutMessage) message;
-                ActorPath actorPath = appActor.findShard(putMessage.getKey());
-
-                if (actorPath != null) {
-                    if (actorPath == appActor.getSelf().path()) {
-                        appActor.partitionedMap.put(putMessage.getKey(), putMessage.getValue());
-                        System.out.println(appActor.partitionedMap);
-                    } else {
-                        System.out.println("putMessage = " + putMessage);
-                        appActor.getContext().actorSelection(actorPath).tell(message, appActor.self());
-                    }
-                }
-
-            }
-
-            if (message instanceof ReadMessage) {
-                ReadMessage readMessage = (ReadMessage) message;
-                ActorPath actorPath = appActor.findShard(readMessage.getKey());
-                if (actorPath == appActor.getSelf().path()) {
-                    Integer value = appActor.partitionedMap.get(readMessage.getKey());
-                    appActor.getSender().tell(new ReadMessageAnswer(readMessage.getKey(), value), appActor.self());
-                } else {
-                    appActor.getContext().actorSelection(actorPath).tell(message, appActor.getSender());
-                }
-            }
-        }
-
-     }
-
-     static class ShardOperationsHandler {
-
-        static void handleSharding(AppActor appActor, Object message) {
-
-            if (message instanceof ActorIdentity) {
-                ActorIdentity identity = (ActorIdentity) message;
-                String path = identity.correlationId().toString();
-                ActorSelection actorSelection = appActor.getContext().actorSelection(path);
-                if (identity.getRef() == null) {
-                    actorSelection.tell(new Identify(path), appActor.getSelf());
-                } else {
-                    appActor.getContext().watch(identity.getRef());
-                    actorSelection.tell(new ShardMessage(appActor.startKey, appActor.endKey), appActor.getSelf());
-                }
-            }
-
-            if (message instanceof ShardMessage) {
-                ShardMessage shardMessage = (ShardMessage) message;
-                Shard shard = new Shard(shardMessage.getStartKey(), shardMessage.getEndKey());
-                appActor.shardMap.put(shard, appActor.getSender().path());
-                System.out.println("ShardMap is = " + appActor.shardMap);
-            }
-
-            if (message instanceof Terminated) {
-
-            }
-
-        }
-    }
 
 }
