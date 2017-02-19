@@ -55,7 +55,8 @@ public class AppActor extends UntypedActor {
             ShardMessage shardMessage = (ShardMessage) message;
             Shard shard = new Shard(shardMessage.getStartKey(), shardMessage.getEndKey());
             shardMap.put(shard, getSender().path());
-            System.out.println("ShardMap is = " + shardMap);
+            System.out.println("**************ShardMap is******** = " + shardMap);
+
             if (shardMap.keySet().size() == 4) {
                 getSelf().tell(new Status.Success(""), getSelf());
             }
